@@ -1,0 +1,25 @@
+# Adicione/atualize essas configurações no seu wrangler.toml existente
+
+name = "seu-worker"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# ─── Cron para manter o Render acordado (a cada 10 minutos) ──────────────────
+[triggers]
+crons = ["*/10 * * * *"]
+
+# ─── Binding do D1 ────────────────────────────────────────────────────────────
+[[d1_databases]]
+binding = "DB"
+database_name = "seu-banco"
+database_id = "SEU-DATABASE-ID-AQUI"
+
+# ─── Variáveis de ambiente ────────────────────────────────────────────────────
+[vars]
+KEPLACA_URL = "https://keplaca-scraper.onrender.com"
+
+# ATENÇÃO: tokens secretos NÃO colocar no wrangler.toml!
+# Use o comando abaixo para cada um:
+#
+#   wrangler secret put APIPLACAS_TOKEN
+#   wrangler secret put KEPLACA_SECRET
