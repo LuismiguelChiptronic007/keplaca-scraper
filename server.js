@@ -24,17 +24,32 @@ async function consultarKeplaca(placa) {
   let browser = null
   try {
     browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
+      args: [
+        ...chromium.args,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process',
+      ],
+      defaultViewport: { width: 1366, height: 768 },
       executablePath: await chromium.executablePath(),
       headless: chromium.headless,
     })
 
     const page = await browser.newPage()
 
+    // Remove sinais de automação
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+      Object.defineProperty(navigator, 'languages', { get: () => ['pt-BR', 'pt', 'en-US'] })
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] })
+      window.chrome = { runtime: {} }
+    })
+
     await page.setRequestInterception(true)
     page.on('request', (req) => {
-      if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+      if (['image', 'font', 'media'].includes(req.resourceType())) {
         req.abort()
       } else {
         req.continue()
@@ -45,15 +60,37 @@ async function consultarKeplaca(placa) {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     )
 
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+    })
+
+    // Vai para Google primeiro para simular navegação real
+    await page.goto('https://www.google.com.br', { waitUntil: 'domcontentloaded', timeout: 15000 })
+      .catch(() => {})
+
+    // Espera aleatória entre 1-3 segundos
+    await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000))
+
     await page.goto(
       `https://keplaca.com/placa?placa-fipe=${placa.toUpperCase()}`,
-      { waitUntil: 'networkidle2', timeout: 30000 }
+      { waitUntil: 'networkidle2', timeout: 45000 }
     )
 
-    const htmlTrecho = await page.evaluate(() => document.body.innerHTML.slice(0, 500))
-    console.log(`[HTML] ${htmlTrecho}`)
+    // Verifica se foi bloqueado pelo Cloudflare
+    const titulo = await page.title()
+    const bodyText = await page.evaluate(() => document.body?.innerText || '')
 
-    // Aguarda algum elemento de dados aparecer
+    console.log(`[TITULO] ${titulo}`)
+
+    if (titulo.includes('blocked') || titulo.includes('Attention') || bodyText.includes('Sorry, you have been blocked')) {
+      console.log(`[CLOUDFLARE] Bloqueado para placa ${placa}`)
+      return null
+    }
+
     await page.waitForSelector('table tr, dl dt, .card', { timeout: 15000 }).catch(() => {})
 
     const dados = await page.evaluate(() => {
@@ -78,18 +115,13 @@ async function consultarKeplaca(placa) {
 
       const pares = []
 
-      // <table> rows
       document.querySelectorAll('tr').forEach(tr => {
         const cells = tr.querySelectorAll('td, th')
         if (cells.length >= 2) {
-          pares.push({
-            chave: cells[0].innerText.trim().toLowerCase(),
-            valor: cells[1].innerText.trim()
-          })
+          pares.push({ chave: cells[0].innerText.trim().toLowerCase(), valor: cells[1].innerText.trim() })
         }
       })
 
-      // <dl><dt><dd>
       document.querySelectorAll('dt').forEach(dt => {
         const dd = dt.nextElementSibling
         if (dd && dd.tagName === 'DD') {
@@ -97,10 +129,8 @@ async function consultarKeplaca(placa) {
         }
       })
 
-      // divs/p com "Label: Valor"
       document.querySelectorAll('div, p, li, span').forEach(el => {
-        const filhos = el.children
-        if (filhos.length === 0) return // só folhas
+        if (el.children.length === 0) return
         const txt = el.innerText || ''
         const match = txt.match(/^([^:\n]{2,40}):\s*(.+)$/)
         if (match) {
