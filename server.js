@@ -50,6 +50,9 @@ async function consultarKeplaca(placa) {
       { waitUntil: 'networkidle2', timeout: 30000 }
     )
 
+    const htmlTrecho = await page.evaluate(() => document.body.innerHTML.slice(0, 500))
+    console.log(`[HTML] ${htmlTrecho}`)
+
     // Aguarda algum elemento de dados aparecer
     await page.waitForSelector('table tr, dl dt, .card', { timeout: 15000 }).catch(() => {})
 
@@ -153,11 +156,14 @@ app.get('/placa/:placa', async (req, res) => {
   try {
     console.log(`[${new Date().toISOString()}] Consultando: ${placa}`)
     const dados = await consultarKeplaca(placa)
-    if (!dados) return res.status(404).json({ erro: 'Veículo não encontrado' })
+    if (!dados) {
+      console.log(`[${new Date().toISOString()}] NÃO ENCONTRADO: ${placa}`)
+      return res.status(404).json({ erro: 'Veículo não encontrado' })
+    }
     console.log(`[${new Date().toISOString()}] OK: ${placa} → ${dados.marca} ${dados.modelo}`)
     return res.json(dados)
   } catch (err) {
-    console.error(`[${new Date().toISOString()}] ERRO ${placa}:`, err.message)
+    console.error(`[${new Date().toISOString()}] ERRO ${placa}:`, err.message, err.stack)
     return res.status(500).json({ erro: 'Falha no scraping', detalhe: err.message })
   }
 })
